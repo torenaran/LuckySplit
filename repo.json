@@ -1,0 +1,23 @@
+[
+  {
+    "Author": "Tori",
+    "Name": "Lucky Split",
+    "InternalName": "LuckySplit",
+    "AssemblyVersion": "1.0.0.0",
+    "Description": "Lucky Split is a host-side 50/50 drawing manager for Final Fantasy XIV venues. Create reusable venue presets, record confirmed ticket purchases, assign ticket ranges automatically, track the pot and payout, draw a winner, retain history, and export the ledger.",
+    "RepoUrl": "https://github.com/torenaran/LuckySplit",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 15,
+    "Punchline": "A polished 50/50 drawing console for FFXIV venues.",
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/torenaran/LuckySplit/releases/download/v1.0.0/LuckySplit-v1.0.0-XMA.zip",
+    "DownloadLinkUpdate": "https://github.com/torenaran/LuckySplit/releases/download/v1.0.0/LuckySplit-v1.0.0-XMA.zip",
+    "IconUrl": "https://raw.githubusercontent.com/torenaran/LuckySplit/main/images/icon.png",
+    "ImageUrls": [
+      "https://raw.githubusercontent.com/torenaran/LuckySplit/main/images/banner.png",
+      "https://raw.githubusercontent.com/torenaran/LuckySplit/main/images/splash.png"
+    ],
+    "Changelog": "Lucky Split 1.0.0 is the first public release."
+  }
+]
