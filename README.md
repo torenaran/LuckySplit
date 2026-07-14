@@ -30,15 +30,20 @@ Lucky Split never moves gil, completes trades, inspects balances, or sends chat 
 
 ## Installation
 
-1. Download `LuckySplit-v1.0.0-XMA.zip` from the latest release.
-2. Extract it to a permanent folder.
-3. Open **Dalamud Settings** in FFXIV.
-4. Open **Experimental**.
-5. Add the extracted Lucky Split folder under **Dev Plugin Locations**.
-6. Open the Dalamud Plugin Installer and enable **Lucky Split** under developer plugins.
-7. Enter `/luckysplit` in chat.
+Custom repository URL:
+https://raw.githubusercontent.com/torenaran/LuckySplit/main/repo.json
 
-Manual installations do not update automatically. Replace the installed files when a newer release is published.
+1. Open Dalamud Settings in FFXIV.
+2. Select Experimental.
+3. Paste the URL above under Custom Plugin Repositories.
+4. Select the + button, then Save and Close.
+5. Open /xlplugins.
+6. Search for Lucky Split and select Install.
+7. Open Lucky Split with /luckysplit, /lucky, or /5050.
+
+Updates are delivered through the Dalamud Plugin Installer.
+
+Lucky Split does not move gil or complete trades. Venue staff must confirm payments and distribute winnings manually.
 
 ## Building from source
 
