@@ -1,5 +1,5 @@
 {
-  "Author": "Christopher Bush",
+  "Author": "Tori",
   "Name": "Lucky Split",
   "Punchline": "A polished 50/50 drawing console for FFXIV venues.",
   "Description": "Lucky Split gives venue hosts a complete, easy-to-follow workflow for running in-game 50/50 drawings. Create reusable presets for each venue or recurring event, select nearby players when recording confirmed ticket sales, assign consecutive ticket ranges automatically, and monitor the live pot, winner prize, venue share, ticket count, and entrant count from one styled dashboard.\n\nClose and reopen sales safely, use confirmation prompts for important actions, draw a reproducible winning ticket from the finalized ledger, copy ready-to-post opening and winner announcements, review completed or voided drawings, and export purchase records to CSV.\n\nLucky Split does not move gil, complete trades, inspect balances, or send chat automatically. Venue staff remain responsible for confirming payments, recording purchases accurately, and distributing winnings.\n\nCommands: /luckysplit, /lucky, /5050",
