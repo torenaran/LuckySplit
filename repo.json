@@ -11,8 +11,8 @@
     "Punchline": "A polished 50/50 drawing console for FFXIV venues.",
     "IsHide": false,
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/torenaran/LuckySplit/releases/download/v1.0.0/LuckySplit-v1.0.0-XMA.zip",
-    "DownloadLinkUpdate": "https://github.com/torenaran/LuckySplit/releases/download/v1.0.0/LuckySplit-v1.0.0-XMA.zip",
+    "DownloadLinkInstall": "https://github.com/torenaran/LuckySplit/releases/download/release/LuckySplit-v1.0.0-XMA.zip",
+    "DownloadLinkUpdate": "https://github.com/torenaran/LuckySplit/releases/download/release/LuckySplit-v1.0.0-XMA.zip",
     "IconUrl": "https://raw.githubusercontent.com/torenaran/LuckySplit/main/images/icon.png",
     "ImageUrls": [
       "https://raw.githubusercontent.com/torenaran/LuckySplit/main/images/banner.png",
