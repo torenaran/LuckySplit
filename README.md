@@ -52,16 +52,6 @@ Requirements:
 - .NET 10 SDK
 - Dalamud API 15 development environment
 
-Build and create the XMA release package with:
-
-```powershell
-.\Build-XmaRelease.ps1
-```
-
-The completed archive is written to:
-
-```text
-dist\LuckySplit-v1.0.0-XMA.zip
 ```
 
 ## License
