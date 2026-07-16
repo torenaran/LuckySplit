@@ -67,6 +67,7 @@ public sealed class MainWindow : Window, IDisposable
     private string onboardingVenueName = string.Empty;
     private string onboardingDrawingTitle = string.Empty;
     private int onboardingTicketPrice = 100_000;
+    private int onboardingStartingPrize;
     private int onboardingWinnerPercent = 50;
     private int onboardingPlayerLimit;
 
@@ -77,6 +78,7 @@ public sealed class MainWindow : Window, IDisposable
     private string presetVenueName = string.Empty;
     private string presetDrawingTitle = string.Empty;
     private int presetTicketPrice = 100_000;
+    private int presetStartingPrize;
     private int presetWinnerPercent = 50;
     private int presetPlayerLimit;
 
@@ -313,7 +315,7 @@ public sealed class MainWindow : Window, IDisposable
                 statusMessage = $"Nearby player list refreshed: {nearbyPlayers.Count:N0} loaded player(s).";
             }
 
-            const string versionText = "LUCKY SPLIT  v1.0.0";
+            const string versionText = "LUCKY SPLIT  v1.1.0";
             var versionWidth = ImGui.CalcTextSize(versionText).X;
             ImGui.SameLine(Math.Max(ImGui.GetCursorPosX() + 20f, ImGui.GetContentRegionMax().X - versionWidth));
             ImGui.TextDisabled(versionText);
@@ -417,7 +419,7 @@ public sealed class MainWindow : Window, IDisposable
     private void DrawDraft(DrawingRecord drawing)
     {
         ImGui.TextColored(Gold, "Choose tonight's preset");
-        ImGui.TextWrapped("Start with a saved venue setup, then adjust anything unique to this drawing. Draft changes do not overwrite the preset.");
+        ImGui.TextWrapped("Start with a saved venue setup, then adjust anything unique to this drawing. Draft changes affect only the current drawing and do not overwrite the saved preset.");
         ImGui.Spacing();
 
         DrawDraftPresetSelector(drawing);
@@ -431,42 +433,73 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableNextRow();
 
             ImGui.TableSetColumnIndex(0);
+            DrawFieldHelp(
+                "Drawing name",
+                "The public title used on the dashboard, copied announcements, drawing history, and CSV exports.");
             var title = drawing.Title;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputText("Drawing name##Draft", ref title, 120))
+            if (ImGui.InputText("##DraftDrawingName", ref title, 120))
             {
                 drawing.Title = title;
                 plugin.Configuration.Save();
             }
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Venue name",
+                "The venue shown in announcements and saved records. This can differ from the preset name.");
             var venue = drawing.VenueName;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputText("Venue##Draft", ref venue, 80))
+            if (ImGui.InputText("##DraftVenueName", ref venue, 80))
             {
                 drawing.VenueName = venue;
                 plugin.Configuration.Save();
             }
 
             ImGui.TableSetColumnIndex(1);
+            DrawFieldHelp(
+                "Ticket price",
+                "The amount of gil staff should confirm for each ticket. Lucky Split records the amount but never handles the trade.");
             var price = drawing.TicketPrice;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputInt("Ticket price (gil)##Draft", ref price, 10_000, 100_000))
+            if (ImGui.InputInt("##DraftTicketPrice", ref price, 10_000, 100_000))
             {
                 drawing.TicketPrice = Math.Clamp(price, 1, DrawingServiceLimits.MaxTicketPrice);
                 plugin.Configuration.Save();
             }
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Venue starting pot",
+                "Optional gil supplied by the venue before sales begin. It joins ticket revenue, and the winner percentage is applied to the full combined pool.");
+            var startingPrize = checked((int)Math.Clamp(drawing.StartingPrizeGil, 0L, DrawingServiceLimits.MaxStartingPrize));
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.InputInt("##DraftStartingPot", ref startingPrize, 100_000, 1_000_000))
+            {
+                drawing.StartingPrizeGil = Math.Clamp(startingPrize, 0, DrawingServiceLimits.MaxStartingPrize);
+                plugin.Configuration.Save();
+            }
+
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Winner share",
+                "The percentage of the total prize pool paid to the winner. The remaining gil is shown as the venue share.");
             var split = drawing.WinnerPercent;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.SliderInt("Winner share (%)##Draft", ref split, 1, 100))
+            if (ImGui.SliderInt("##DraftWinnerShare", ref split, 1, 100))
             {
                 drawing.WinnerPercent = split;
                 plugin.Configuration.Save();
             }
+            DrawCompactHelp($"Current split: {drawing.WinnerPercent}% to the winner and {100 - drawing.WinnerPercent}% to the venue.");
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Player ticket limit",
+                "The maximum tickets one character and home-world combination may hold. Enter 0 to allow unlimited tickets.");
             var limit = drawing.MaxTicketsPerPlayer;
             ImGui.SetNextItemWidth(-1);
-            if (ImGui.InputInt("Player ticket limit (0 = unlimited)##Draft", ref limit))
+            if (ImGui.InputInt("##DraftPlayerLimit", ref limit))
             {
                 drawing.MaxTicketsPerPlayer = Math.Clamp(limit, 0, DrawingServiceLimits.MaxTicketsPerDrawing);
                 plugin.Configuration.Save();
@@ -476,7 +509,9 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
-        ImGui.TextDisabled($"Projected prize per {drawing.TicketPrice:N0}-gil ticket sale: {(long)drawing.TicketPrice * drawing.WinnerPercent / 100:N0} gil added to the winner's share.");
+        DrawCompactHelp(
+            $"Pool preview: {drawing.StartingPrizeGil:N0} gil starting pot + ticket revenue. " +
+            $"The winner receives {drawing.WinnerPercent}% of the full pool; the venue receives the remainder.");
         ImGui.Spacing();
 
         if (PrimaryButton("Open Ticket Sales", new Vector2(210, 38)))
@@ -486,6 +521,7 @@ public sealed class MainWindow : Window, IDisposable
                 statusMessage = "Ticket sales opened. Copy the opening announcement before accepting purchases.";
             plugin.Configuration.Save();
         }
+        DrawCompactHelp("Opening sales locks the drawing rules and creates the transparency commitment. Purchases can then be recorded.");
     }
 
     private void DrawOpen(DrawingRecord drawing)
@@ -524,7 +560,7 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.CollapsingHeader("Transparency commitment"))
         {
-            ImGui.TextWrapped("Publish this commitment before or while accepting entries. The hidden seed is revealed only after a winner is drawn.");
+            ImGui.TextWrapped("Publish this commitment before or while accepting entries. It proves the plugin committed to a hidden seed before the final ticket ledger was known. The seed is revealed only after a winner is drawn, allowing the completed receipt to be checked.");
             ImGui.TextWrapped(drawing.CommitmentHash);
             if (ImGui.Button("Copy Commitment"))
             {
@@ -536,19 +572,29 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawPurchaseForm(DrawingRecord drawing)
     {
-        ImGui.TextWrapped("Confirm the gil trade in-game, then record the purchase here.");
+        ImGui.TextWrapped("Confirm the gil trade in-game first, then record the purchase here. Lucky Split does not inspect gil, complete trades, or message the buyer.");
         ImGui.Spacing();
 
         DrawNearbyPlayerPicker();
         ImGui.Spacing();
 
+        DrawFieldHelp(
+            "Character name",
+            "The buyer name saved to the ledger and assigned the next ticket range. Selecting a nearby player fills this automatically.");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Character name##Purchase", ref buyerName, 80);
+        ImGui.InputText("##PurchaseCharacterName", ref buyerName, 80);
 
+        ImGui.Spacing();
+        DrawFieldHelp(
+            "Home world",
+            "Recommended when known. Name and home world together identify the buyer for ticket-limit checks and duplicate-name clarity.");
         ImGui.SetNextItemWidth(-1);
-        ImGui.InputText("Home world (optional)##Purchase", ref buyerWorld, 40);
+        ImGui.InputText("##PurchaseHomeWorld", ref buyerWorld, 40);
 
-        ImGui.Text("Number of tickets");
+        ImGui.Spacing();
+        DrawFieldHelp(
+            "Number of tickets",
+            "The quantity included in this purchase. Lucky Split assigns one consecutive ticket range when the purchase is confirmed.");
         if (ImGui.SmallButton("−##TicketQuantity"))
             ticketQuantity = Math.Max(1, ticketQuantity - 1);
         ImGui.SameLine();
@@ -561,11 +607,14 @@ public sealed class MainWindow : Window, IDisposable
 
         var purchaseAmount = (long)ticketQuantity * drawing.TicketPrice;
         ImGui.Spacing();
-        ImGui.TextDisabled("Payment due");
+        ImGui.TextDisabled("Payment due for this purchase");
         ImGui.TextColored(Gold, $"{purchaseAmount:N0} gil");
+        DrawCompactHelp($"{ticketQuantity:N0} ticket(s) × {drawing.TicketPrice:N0} gil each.");
 
         if (drawing.MaxTicketsPerPlayer > 0)
-            ImGui.TextDisabled($"Limit: {drawing.MaxTicketsPerPlayer:N0} tickets per character and world.");
+            DrawCompactHelp($"Drawing limit: {drawing.MaxTicketsPerPlayer:N0} tickets per character and home world.");
+        else
+            DrawCompactHelp("This drawing has no per-player ticket limit.");
 
         ImGui.Spacing();
         if (PrimaryButton("Confirm Purchase", new Vector2(180, 34)))
@@ -582,6 +631,7 @@ public sealed class MainWindow : Window, IDisposable
 
             plugin.Configuration.Save();
         }
+        DrawCompactHelp("Confirm Purchase writes the sale to the local ledger. Use Remove on the ledger row if staff need to reverse it while sales are open.");
     }
 
 
@@ -590,11 +640,15 @@ public sealed class MainWindow : Window, IDisposable
         if (DateTime.UtcNow >= nextNearbyPlayerRefreshUtc)
             RefreshNearbyPlayers();
 
-        ImGui.Text("Select from nearby players");
+        DrawFieldHelp(
+            "Nearby player picker",
+            "A convenience list of player characters currently loaded by your game client. It may not include every guest in a crowded venue, so manual entry remains available.");
+        ImGui.TextUnformatted("Loaded-player range");
+        DrawCompactHelp("Controls how far Lucky Split searches from your character. “All loaded” may include players outside the venue room.");
 
         var rangeLabel = NearbyPlayerRangeLabels[Math.Clamp(nearbyPlayerRangeIndex, 0, NearbyPlayerRangeLabels.Length - 1)];
         ImGui.SetNextItemWidth(145);
-        if (ImGui.BeginCombo("Range##NearbyPlayerRange", rangeLabel))
+        if (ImGui.BeginCombo("##NearbyPlayerRange", rangeLabel))
         {
             for (var index = 0; index < NearbyPlayerRangeLabels.Length; index++)
             {
@@ -666,7 +720,7 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.EndCombo();
         }
 
-        ImGui.TextDisabled("Shows player characters currently loaded by your game client. Manual entry remains available below.");
+        DrawCompactHelp("Choose a player to fill the character and home-world fields below. The list refreshes automatically about once per second.");
     }
 
     private void RefreshNearbyPlayers()
@@ -718,6 +772,8 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawLedgerSearch()
     {
+        ImGui.TextUnformatted("Ledger filter");
+        DrawCompactHelp("Search by character name or home world. Filtering changes only the visible rows; it does not alter tickets, totals, or saved purchases.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputTextWithHint("##LedgerSearch", "Search buyer or world", ref ledgerSearch, 80);
     }
@@ -748,6 +804,8 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (DangerButton("Void…", new Vector2(80, 0)))
             ImGui.OpenPopup(VoidDrawingPopup);
+
+        DrawCompactHelp("Copy buttons place announcement text on your clipboard; they never send chat automatically. Export Ledger saves a CSV copy for staff records.");
     }
 
     private void DrawClosed(DrawingRecord drawing)
@@ -807,7 +865,9 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.TextColored(LuckySplitTheme.Text, drawing.WinnerDisplayName);
                 ImGui.Spacing();
                 ImGui.TextColored(LuckySplitTheme.Success, $"{drawing.WinnerPayout:N0} GIL");
-                ImGui.TextDisabled($"Venue share: {drawing.VenueShare:N0} gil");
+                ImGui.TextDisabled($"Venue share from total pool: {drawing.VenueShare:N0} gil");
+                if (drawing.StartingPrizeGil > 0)
+                    ImGui.TextDisabled($"Venue starting pot: {drawing.StartingPrizeGil:N0} gil");
 
                 ImGui.EndTable();
             }
@@ -837,7 +897,7 @@ public sealed class MainWindow : Window, IDisposable
 
         if (ImGui.CollapsingHeader("Transparency receipt"))
         {
-            ImGui.TextWrapped("The result is reproducible from the committed seed and final ledger. These details are intended for audit and recordkeeping.");
+            ImGui.TextWrapped("The commitment proves a hidden seed was fixed before the final ledger was known. After the draw, the revealed seed, ledger hash, and result digest allow the winning ticket to be reproduced for audit and recordkeeping.");
             ImGui.TextWrapped($"Commitment: {drawing.CommitmentHash}");
             ImGui.TextWrapped($"Revealed seed: {drawing.SeedHex}");
             ImGui.TextWrapped($"Ledger hash: {drawing.LedgerHash}");
@@ -874,16 +934,15 @@ public sealed class MainWindow : Window, IDisposable
 
     private void DrawSummaryCards(DrawingRecord drawing)
     {
-        var projectedPayout = drawing.TotalPot * drawing.WinnerPercent / 100;
         if (!ImGui.BeginTable("LuckySplitSummaryCards", 4, ImGuiTableFlags.SizingStretchSame))
             return;
 
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
-        DrawMetricCard("TOTAL POT", $"{drawing.TotalPot:N0} gil", LuckySplitTheme.Gold, "Pot");
+        DrawMetricCard("WINNER PRIZE", $"{(drawing.Status == DrawingStatus.Drawn ? drawing.WinnerPayout : drawing.ProjectedWinnerPayout):N0} gil", LuckySplitTheme.Teal, "Prize");
 
         ImGui.TableSetColumnIndex(1);
-        DrawMetricCard("WINNER PRIZE", $"{(drawing.Status == DrawingStatus.Drawn ? drawing.WinnerPayout : projectedPayout):N0} gil", LuckySplitTheme.Teal, "Prize");
+        DrawMetricCard("TOTAL PRIZE POOL", $"{drawing.TotalPrizePool:N0} gil", LuckySplitTheme.Gold, "Pool");
 
         ImGui.TableSetColumnIndex(2);
         DrawMetricCard("TICKETS SOLD", drawing.TotalTickets.ToString("N0"), LuckySplitTheme.Violet, "Tickets");
@@ -892,6 +951,11 @@ public sealed class MainWindow : Window, IDisposable
         DrawMetricCard("ENTRANTS", drawing.UniquePlayers.ToString("N0"), LuckySplitTheme.Success, "Entrants");
 
         ImGui.EndTable();
+
+        DrawCompactHelp(
+            $"Starting pot: {drawing.StartingPrizeGil:N0} gil  •  Ticket revenue: {drawing.TicketRevenue:N0} gil  •  " +
+            $"Venue share: {(drawing.Status == DrawingStatus.Drawn ? drawing.VenueShare : drawing.ProjectedVenueShare):N0} gil");
+        DrawCompactHelp("Total prize pool = venue starting pot + ticket revenue. Winner prize = winner percentage of that pool. Venue share = the remainder.");
     }
 
     private void DrawMetricCard(string label, string value, Vector4 accent, string id)
@@ -995,7 +1059,9 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.Spacing();
             ImGui.Text($"Tickets: {drawing.TotalTickets:N0}");
             ImGui.Text($"Entrants: {drawing.UniquePlayers:N0}");
-            ImGui.Text($"Projected winner prize: {drawing.TotalPot * drawing.WinnerPercent / 100:N0} gil");
+            ImGui.Text($"Total prize pool: {drawing.TotalPrizePool:N0} gil");
+            ImGui.Text($"Projected winner payout: {drawing.ProjectedWinnerPayout:N0} gil");
+            ImGui.Text($"Projected venue share: {drawing.ProjectedVenueShare:N0} gil");
             ImGui.Spacing();
 
             if (ImGui.Button("Cancel", new Vector2(110, 32)))
@@ -1023,8 +1089,11 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextWrapped("This permanently locks the ledger, reveals the drawing seed, and selects one winning ticket.");
             ImGui.Spacing();
             ImGui.Text($"Total tickets: {drawing.TotalTickets:N0}");
-            ImGui.Text($"Total pot: {drawing.TotalPot:N0} gil");
-            ImGui.Text($"Winner prize: {drawing.TotalPot * drawing.WinnerPercent / 100:N0} gil");
+            ImGui.Text($"Ticket revenue: {drawing.TicketRevenue:N0} gil");
+            ImGui.Text($"Total prize pool: {drawing.TotalPrizePool:N0} gil");
+            if (drawing.StartingPrizeGil > 0)
+                ImGui.Text($"Venue starting pot: {drawing.StartingPrizeGil:N0} gil");
+            ImGui.Text($"Winner prize: {drawing.ProjectedWinnerPayout:N0} gil");
             ImGui.Spacing();
 
             if (ImGui.Button("Cancel", new Vector2(110, 32)))
@@ -1128,6 +1197,8 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.PushStyleColor(ImGuiCol.ChildBg, LuckySplitTheme.Panel);
             if (ImGui.BeginChild("HistoryList", new Vector2(0, 520), true))
             {
+                ImGui.TextUnformatted("Archive filter");
+                DrawCompactHelp("Search by venue, drawing title, or winner. This filters the visible archive only.");
                 ImGui.SetNextItemWidth(-1);
                 ImGui.InputTextWithHint("##HistorySearch", "Search venue, drawing, or winner", ref historySearch, 100);
                 ImGui.Spacing();
@@ -1211,6 +1282,8 @@ public sealed class MainWindow : Window, IDisposable
             ExportCsv(drawing);
 
         ImGui.Spacing();
+        DrawCompactHelp("Copy Winner copies the public announcement. Copy Receipt copies the transparency details. Export Ledger creates a CSV record.");
+        ImGui.Spacing();
         if (ImGui.CollapsingHeader($"Ledger ({drawing.Purchases.Count:N0} purchases)##HistoryLedger{drawing.Id}"))
         {
             DrawPurchases(drawing, allowRemoval: false, height: 240);
@@ -1234,6 +1307,10 @@ public sealed class MainWindow : Window, IDisposable
             drawing.TicketPrice > 0 ? drawing.TicketPrice : config.DefaultTicketPrice,
             1,
             DrawingServiceLimits.MaxTicketPrice);
+        onboardingStartingPrize = checked((int)Math.Clamp(
+            drawing.StartingPrizeGil > 0 ? drawing.StartingPrizeGil : config.DefaultStartingPrizeGil,
+            0L,
+            DrawingServiceLimits.MaxStartingPrize));
         onboardingWinnerPercent = Math.Clamp(
             drawing.WinnerPercent > 0 ? drawing.WinnerPercent : config.DefaultWinnerPercent,
             1,
@@ -1249,7 +1326,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.TextColored(Gold, "WELCOME TO LUCKY SPLIT");
         ImGui.TextDisabled("Set up your first venue preset");
         ImGui.Separator();
-        ImGui.TextWrapped("Presets let you switch between venues and recurring event setups without re-entering ticket rules every night. You can create more presets later.");
+        ImGui.TextWrapped("Presets save the identity and ticket rules for recurring venues or event nights. Starting a new drawing from a preset copies those values into a draft, where they can still be adjusted for that one event.");
         ImGui.Spacing();
 
         if (ImGui.BeginTable("LuckySplitFirstRun", 2, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg))
@@ -1260,26 +1337,56 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableNextRow();
 
             ImGui.TableSetColumnIndex(0);
+            DrawFieldHelp(
+                "Preset name",
+                "A private-friendly label used to identify this saved setup, such as “Everbloom Fridays” or “Catsune Saturdays.”");
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputText("Preset name##Onboarding", ref onboardingPresetName, 80);
-            ImGui.TextDisabled("Example: Everbloom Fridays");
+            ImGui.InputText("##OnboardingPresetName", ref onboardingPresetName, 80);
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Venue name",
+                "The public venue name shown in announcements, the active drawing header, history, and exports.");
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputText("Venue name##Onboarding", ref onboardingVenueName, 80);
+            ImGui.InputText("##OnboardingVenueName", ref onboardingVenueName, 80);
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Default drawing name",
+                "The title automatically placed into each new draft created from this preset. You can change it per event.");
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputText("Default drawing name##Onboarding", ref onboardingDrawingTitle, 120);
+            ImGui.InputText("##OnboardingDrawingName", ref onboardingDrawingTitle, 120);
 
             ImGui.TableSetColumnIndex(1);
+            DrawFieldHelp(
+                "Ticket price",
+                "The gil staff should confirm for each ticket sold. Lucky Split tracks the expected amount but does not handle the trade.");
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputInt("Ticket price (gil)##Onboarding", ref onboardingTicketPrice, 10_000, 100_000);
+            ImGui.InputInt("##OnboardingTicketPrice", ref onboardingTicketPrice, 10_000, 100_000);
             onboardingTicketPrice = Math.Clamp(onboardingTicketPrice, 1, DrawingServiceLimits.MaxTicketPrice);
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Venue starting pot",
+                "Optional venue-funded gil added before ticket sales. It is combined with ticket revenue before the winner percentage is calculated.");
             ImGui.SetNextItemWidth(-1);
-            ImGui.SliderInt("Winner share (%)##Onboarding", ref onboardingWinnerPercent, 1, 100);
+            ImGui.InputInt("##OnboardingStartingPot", ref onboardingStartingPrize, 100_000, 1_000_000);
+            onboardingStartingPrize = Math.Clamp(onboardingStartingPrize, 0, DrawingServiceLimits.MaxStartingPrize);
 
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Winner share",
+                "The percentage of the full prize pool paid to the winner. The venue receives the exact remainder.");
             ImGui.SetNextItemWidth(-1);
-            ImGui.InputInt("Player ticket limit (0 = unlimited)##Onboarding", ref onboardingPlayerLimit);
+            ImGui.SliderInt("##OnboardingWinnerShare", ref onboardingWinnerPercent, 1, 100);
+            DrawCompactHelp($"{onboardingWinnerPercent}% to the winner • {100 - onboardingWinnerPercent}% to the venue");
+
+            ImGui.Spacing();
+            DrawFieldHelp(
+                "Player ticket limit",
+                "The maximum tickets allowed for one character and home world. Enter 0 for unlimited tickets.");
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputInt("##OnboardingPlayerLimit", ref onboardingPlayerLimit);
             onboardingPlayerLimit = Math.Clamp(onboardingPlayerLimit, 0, DrawingServiceLimits.MaxTicketsPerDrawing);
 
             ImGui.EndTable();
@@ -1293,6 +1400,7 @@ public sealed class MainWindow : Window, IDisposable
                 onboardingVenueName,
                 onboardingDrawingTitle,
                 onboardingTicketPrice,
+                onboardingStartingPrize,
                 onboardingWinnerPercent,
                 onboardingPlayerLimit);
 
@@ -1308,6 +1416,7 @@ public sealed class MainWindow : Window, IDisposable
                     VenueName = onboardingVenueName.Trim(),
                     DefaultDrawingTitle = onboardingDrawingTitle.Trim(),
                     TicketPrice = onboardingTicketPrice,
+                    StartingPrizeGil = onboardingStartingPrize,
                     WinnerPercent = onboardingWinnerPercent,
                     MaxTicketsPerPlayer = onboardingPlayerLimit,
                 };
@@ -1316,7 +1425,7 @@ public sealed class MainWindow : Window, IDisposable
                 config.Presets.Add(preset);
                 config.SelectedPresetId = preset.Id;
                 config.HasCompletedPresetSetup = true;
-                config.Version = 6;
+                config.Version = 8;
 
                 var applied = plugin.DrawingService.ApplyPresetToDraft(config.CurrentDrawing, preset);
                 config.Save();
@@ -1327,6 +1436,7 @@ public sealed class MainWindow : Window, IDisposable
                     : $"Created preset '{preset.DisplayName}'. Your active drawing was left unchanged.";
             }
         }
+        DrawCompactHelp("Creating the preset saves these defaults and selects it as the active setup for the current draft.");
 
         DrawStatusMessage();
     }
@@ -1338,8 +1448,12 @@ public sealed class MainWindow : Window, IDisposable
             ?? config.GetSelectedPreset();
         var preview = selected?.DisplayName ?? "Choose a preset";
 
-        ImGui.SetNextItemWidth(360);
-        if (ImGui.BeginCombo("Venue preset", preview))
+        DrawFieldHelp(
+            "Venue preset",
+            "Choose the saved setup to use for this draft. Selecting a preset copies its venue name and ticket rules into the draft; later draft edits do not overwrite the preset.");
+
+        ImGui.SetNextItemWidth(Math.Min(420f, ImGui.GetContentRegionAvail().X));
+        if (ImGui.BeginCombo("##DraftVenuePreset", preview))
         {
             foreach (var preset in config.Presets)
             {
@@ -1359,7 +1473,11 @@ public sealed class MainWindow : Window, IDisposable
 
         if (selected is not null)
         {
-            ImGui.TextDisabled($"{selected.VenueName}  •  {selected.TicketPrice:N0} gil  •  {selected.WinnerPercent}% to winner" +
+            var startingPrizeText = selected.StartingPrizeGil > 0
+                ? $"  •  Starts at {selected.StartingPrizeGil:N0} gil"
+                : "  •  No starting pot";
+            DrawCompactHelp($"{selected.VenueName}  •  {selected.TicketPrice:N0} gil per ticket  •  {selected.WinnerPercent}% to winner" +
+                startingPrizeText +
                 (selected.MaxTicketsPerPlayer > 0 ? $"  •  Limit {selected.MaxTicketsPerPlayer:N0}" : "  •  Unlimited tickets"));
         }
     }
@@ -1418,6 +1536,7 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TextDisabled(activePreset is null
                 ? "No active preset"
                 : $"Active: {activePreset.DisplayName}");
+            DrawCompactHelp("The active preset supplies defaults for a new draft. Editing another preset does not switch the active one unless you choose Activate.");
             ImGui.Spacing();
 
             ImGui.SetNextItemWidth(-1);
@@ -1452,7 +1571,7 @@ public sealed class MainWindow : Window, IDisposable
         var accent = selectedForFuture ? LuckySplitTheme.Teal : LuckySplitTheme.Violet;
 
         ImGui.PushStyleColor(ImGuiCol.ChildBg, editing ? LuckySplitTheme.PanelHover : LuckySplitTheme.PanelRaised);
-        if (ImGui.BeginChild($"PresetCard{preset.Id}", new Vector2(0, 142), true,
+        if (ImGui.BeginChild($"PresetCard{preset.Id}", new Vector2(0, 162), true,
                 ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
         {
             var position = ImGui.GetWindowPos();
@@ -1473,7 +1592,11 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8f);
             ImGui.TextDisabled($"Venue: {preset.VenueName}");
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8f);
-            ImGui.TextDisabled($"{preset.TicketPrice:N0} gil per ticket  •  {preset.WinnerPercent}% to winner");
+            ImGui.TextDisabled($"{preset.TicketPrice:N0} gil per ticket  •  {preset.WinnerPercent}% of total pool to winner");
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8f);
+            ImGui.TextDisabled(preset.StartingPrizeGil > 0
+                ? $"Starting pot: {preset.StartingPrizeGil:N0} gil"
+                : "Starting pot: None");
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 8f);
             ImGui.TextDisabled(preset.MaxTicketsPerPlayer > 0
                 ? $"Limit: {preset.MaxTicketsPerPlayer:N0} tickets per player"
@@ -1527,15 +1650,15 @@ public sealed class MainWindow : Window, IDisposable
         }
 
         ImGui.Spacing();
-        DrawEditorTextLabel("Preset name", "A friendly label such as Everbloom Fridays.");
+        DrawEditorTextLabel("Preset name", "A recognizable saved-setup label, such as “Everbloom Fridays.” This is for choosing presets and does not appear as the public venue name.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##PresetNameEditor", ref presetName, 80);
 
-        DrawEditorTextLabel("Venue name", "The venue name shown in announcements and drawing records.");
+        DrawEditorTextLabel("Venue name", "The public venue name shown in announcements, active drawings, history, and exported records.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##PresetVenueEditor", ref presetVenueName, 80);
 
-        DrawEditorTextLabel("Default drawing name", "The starting title for a new drawing using this preset.");
+        DrawEditorTextLabel("Default drawing name", "The title copied into each new draft created from this preset. It can be changed for one event without editing the preset.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##PresetDrawingTitleEditor", ref presetDrawingTitle, 120);
 
@@ -1543,17 +1666,22 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.Separator();
         ImGui.Spacing();
 
-        DrawEditorTextLabel("Ticket price", "Gil due for each ticket.");
+        DrawEditorTextLabel("Ticket price", "The gil staff should confirm for each ticket. Lucky Split calculates expected payment but does not complete the trade.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputInt("##PresetTicketPriceEditor", ref presetTicketPrice, 10_000, 100_000);
         presetTicketPrice = Math.Clamp(presetTicketPrice, 1, DrawingServiceLimits.MaxTicketPrice);
 
-        DrawEditorTextLabel("Winner share", "Percentage of the final pot awarded to the winner.");
+        DrawEditorTextLabel("Venue starting pot", "Optional venue-funded gil included in the total prize pool. The winner percentage applies after this amount is combined with ticket revenue.");
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputInt("##PresetStartingPrizeEditor", ref presetStartingPrize, 100_000, 1_000_000);
+        presetStartingPrize = Math.Clamp(presetStartingPrize, 0, DrawingServiceLimits.MaxStartingPrize);
+
+        DrawEditorTextLabel("Winner share", "Percentage of the full prize pool paid to the winner. The venue receives the exact remaining percentage.");
         ImGui.SetNextItemWidth(-1);
         ImGui.SliderInt("##PresetWinnerPercentEditor", ref presetWinnerPercent, 1, 100);
         ImGui.TextDisabled($"Current winner share: {presetWinnerPercent}%");
 
-        DrawEditorTextLabel("Player ticket limit", "Use 0 for unlimited tickets per player.");
+        DrawEditorTextLabel("Player ticket limit", "Maximum tickets one character and home-world combination may hold in the drawing. Use 0 for unlimited.");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputInt("##PresetPlayerLimitEditor", ref presetPlayerLimit);
         presetPlayerLimit = Math.Clamp(presetPlayerLimit, 0, DrawingServiceLimits.MaxTicketsPerDrawing);
@@ -1608,6 +1736,7 @@ public sealed class MainWindow : Window, IDisposable
             if (editingActivePreset && config.CurrentDrawing.Status == DrawingStatus.Draft)
             {
                 ImGui.Spacing();
+                DrawCompactHelp("Use this after editing the active preset when you also want those saved values copied into the current draft.");
                 if (ImGui.Button("APPLY SAVED PRESET TO CURRENT DRAFT", new Vector2(-1, 36)))
                 {
                     var preset = config.Presets.FirstOrDefault(p => p.Id == presetEditorId);
@@ -1631,8 +1760,22 @@ public sealed class MainWindow : Window, IDisposable
 
     private static void DrawEditorTextLabel(string label, string helpText)
     {
-        ImGui.TextUnformatted(label);
-        ImGui.TextDisabled(helpText);
+        DrawFieldHelp(label, helpText);
+    }
+
+    private static void DrawFieldHelp(string label, string helpText)
+    {
+        ImGui.TextColored(LuckySplitTheme.Text, label);
+        ImGui.PushStyleColor(ImGuiCol.Text, LuckySplitTheme.Muted);
+        ImGui.TextWrapped(helpText);
+        ImGui.PopStyleColor();
+    }
+
+    private static void DrawCompactHelp(string helpText)
+    {
+        ImGui.PushStyleColor(ImGuiCol.Text, LuckySplitTheme.Muted);
+        ImGui.TextWrapped(helpText);
+        ImGui.PopStyleColor();
     }
 
     private void ActivatePreset(VenuePreset preset)
@@ -1666,6 +1809,7 @@ public sealed class MainWindow : Window, IDisposable
         presetVenueName = preset.VenueName;
         presetDrawingTitle = preset.DefaultDrawingTitle;
         presetTicketPrice = preset.TicketPrice;
+        presetStartingPrize = checked((int)Math.Clamp(preset.StartingPrizeGil, 0L, DrawingServiceLimits.MaxStartingPrize));
         presetWinnerPercent = preset.WinnerPercent;
         presetPlayerLimit = preset.MaxTicketsPerPlayer;
     }
@@ -1679,6 +1823,7 @@ public sealed class MainWindow : Window, IDisposable
         presetVenueName = source?.VenueName ?? "New Venue";
         presetDrawingTitle = source?.DefaultDrawingTitle ?? "Tonight's 50/50 Drawing";
         presetTicketPrice = source?.TicketPrice ?? 100_000;
+        presetStartingPrize = checked((int)Math.Clamp(source?.StartingPrizeGil ?? 0L, 0L, DrawingServiceLimits.MaxStartingPrize));
         presetWinnerPercent = source?.WinnerPercent ?? 50;
         presetPlayerLimit = source?.MaxTicketsPerPlayer ?? 0;
         deleteArmedPresetId = Guid.Empty;
@@ -1692,6 +1837,7 @@ public sealed class MainWindow : Window, IDisposable
             presetVenueName,
             presetDrawingTitle,
             presetTicketPrice,
+            presetStartingPrize,
             presetWinnerPercent,
             presetPlayerLimit);
 
@@ -1726,6 +1872,7 @@ public sealed class MainWindow : Window, IDisposable
         preset.VenueName = presetVenueName.Trim();
         preset.DefaultDrawingTitle = presetDrawingTitle.Trim();
         preset.TicketPrice = presetTicketPrice;
+        preset.StartingPrizeGil = presetStartingPrize;
         preset.WinnerPercent = presetWinnerPercent;
         preset.MaxTicketsPerPlayer = presetPlayerLimit;
 
@@ -1783,6 +1930,7 @@ public sealed class MainWindow : Window, IDisposable
         string venueName,
         string drawingTitle,
         int ticketPrice,
+        int startingPrize,
         int winnerPercent,
         int playerLimit)
     {
@@ -1794,6 +1942,8 @@ public sealed class MainWindow : Window, IDisposable
             return "Enter a default drawing name.";
         if (ticketPrice <= 0 || ticketPrice > DrawingServiceLimits.MaxTicketPrice)
             return $"Ticket price must be between 1 and {DrawingServiceLimits.MaxTicketPrice:N0} gil.";
+        if (startingPrize < 0 || startingPrize > DrawingServiceLimits.MaxStartingPrize)
+            return $"Starting prize must be between 0 and {DrawingServiceLimits.MaxStartingPrize:N0} gil.";
         if (winnerPercent is < 1 or > 100)
             return "Winner share must be between 1 and 100 percent.";
         if (playerLimit < 0 || playerLimit > DrawingServiceLimits.MaxTicketsPerDrawing)
@@ -1824,7 +1974,7 @@ public sealed class MainWindow : Window, IDisposable
                 ImGui.Spacing();
                 ImGui.TextWrapped("Lucky Split never moves gil, completes trades, or sends chat automatically. Staff confirm payments in-game, record purchases, and use copy buttons for announcements.");
                 ImGui.Spacing();
-                ImGui.TextColored(LuckySplitTheme.Teal, "Version 1.0.0");
+                ImGui.TextColored(LuckySplitTheme.Teal, "Version 1.1.0");
 
                 ImGui.EndTable();
             }
@@ -1853,13 +2003,13 @@ public sealed class MainWindow : Window, IDisposable
             ImGui.TableSetColumnIndex(1);
             DrawInformationPanel(
                 "SAFETY",
-                "Maximum ticket price: 1,000,000,000 gil\nMaximum purchase: 100,000 tickets\nMaximum drawing: 1,000,000 tickets");
+                "Maximum ticket price: 1,000,000,000 gil\nMaximum starting pot: 1,000,000,000 gil\nMaximum purchase: 100,000 tickets\nMaximum drawing: 1,000,000 tickets");
 
             ImGui.TableNextRow();
             ImGui.TableSetColumnIndex(0);
             DrawInformationPanel(
                 "TRANSPARENCY",
-                "The receipt commits to a hidden seed when sales open, then hashes the final ledger before selecting the winner. The result is reproducible for auditing, but the host still controls the local ledger.");
+                "When sales open, Lucky Split commits to a hidden seed. After sales close, it hashes the finalized ledger and uses both values to select the winning ticket. The revealed receipt can reproduce the result, while staff remain responsible for the accuracy of the local ledger.");
 
             ImGui.TableSetColumnIndex(1);
             var exportText = string.IsNullOrWhiteSpace(lastExportPath)

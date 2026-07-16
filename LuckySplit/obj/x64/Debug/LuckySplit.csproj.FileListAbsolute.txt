@@ -1,0 +1,8 @@
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\bin\x64\Debug\LuckySplit.deps.json
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\bin\x64\Debug\LuckySplit.dll
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.csproj.AssemblyReference.cache
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.AssemblyInfoInputs.cache
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.AssemblyInfo.cs
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.csproj.CoreCompileInputs.cache
+C:\Users\Chris\source\repos\Lucksplit 1.1\LuckySplit\LuckySplit\obj\x64\Debug\LuckySplit.dll

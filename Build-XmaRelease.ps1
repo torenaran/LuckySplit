@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$Version = '1.0.0'
+$Version = '1.1.0'
 $Root = $PSScriptRoot
 $Solution = Join-Path $Root 'LuckySplit.sln'
 $ProjectOutput = Join-Path $Root "LuckySplit\bin\x64\$Configuration"

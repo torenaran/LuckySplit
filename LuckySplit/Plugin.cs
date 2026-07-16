@@ -36,14 +36,14 @@ public sealed class Plugin : IDalamudPlugin
         Configuration.Presets ??= new();
         Configuration.History ??= new();
 
-        if (Configuration.Version < 6)
+        if (Configuration.Version < 8)
         {
-            EnsureProtocolVersion(Configuration.CurrentDrawing);
+            MigrateDrawing(Configuration.CurrentDrawing);
             foreach (var drawing in Configuration.History)
-                EnsureProtocolVersion(drawing);
+                MigrateDrawing(drawing);
         }
 
-        Configuration.Version = Math.Max(Configuration.Version, 6);
+        Configuration.Version = Math.Max(Configuration.Version, 8);
 
         if (Configuration.SelectedPresetId == Guid.Empty && Configuration.Presets.Count > 0)
             Configuration.SelectedPresetId = Configuration.Presets[0].Id;
@@ -96,12 +96,25 @@ public sealed class Plugin : IDalamudPlugin
         return PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
     }
 
-    private static void EnsureProtocolVersion(DrawingRecord? drawing)
+    private void MigrateDrawing(DrawingRecord? drawing)
     {
-        if (drawing is null || !string.IsNullOrWhiteSpace(drawing.ProtocolVersion))
+        if (drawing is null)
             return;
 
-        drawing.ProtocolVersion = "LSPLIT1";
+        drawing.Purchases ??= new();
+
+        if (string.IsNullOrWhiteSpace(drawing.ProtocolVersion))
+        {
+            drawing.ProtocolVersion = drawing.Status == DrawingStatus.Draft && drawing.Purchases.Count == 0
+                ? "LSPLIT3"
+                : "LSPLIT1";
+        }
+        else if (drawing.Status == DrawingStatus.Draft && drawing.Purchases.Count == 0)
+        {
+            drawing.ProtocolVersion = "LSPLIT3";
+        }
+
+        DrawingService.NormalizeCollaborationMetadata(drawing);
     }
 
     private void OnCommand(string command, string args) => MainWindow.Toggle();

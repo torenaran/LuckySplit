@@ -12,6 +12,7 @@ public sealed class VenuePreset
     public int TicketPrice { get; set; } = 100_000;
     public int WinnerPercent { get; set; } = 50;
     public int MaxTicketsPerPlayer { get; set; }
+    public long StartingPrizeGil { get; set; }
 
     public string DisplayName => string.IsNullOrWhiteSpace(Name) ? VenueName : Name;
 }

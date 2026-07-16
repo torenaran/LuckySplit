@@ -1,6 +1,5 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -12,13 +11,17 @@ namespace LuckySplit.Services;
 
 public sealed class DrawingService
 {
+    private const string CurrentProtocol = "LSPLIT3";
+    private const string StartingPrizeWinnerAdditiveProtocol = "LSPLIT2";
+    private const string OriginalProtocol = "LSPLIT1";
+
     public DrawingRecord CreateDraft(Configuration configuration)
     {
         var preset = configuration.GetSelectedPreset();
         if (preset is not null)
             return CreateDraft(preset);
 
-        // Legacy fallback used only until the user completes first-run preset setup.
+        // Compatibility fallback used only until the user completes first-run preset setup.
         return new DrawingRecord
         {
             Title = "Tonight's 50/50 Drawing",
@@ -26,8 +29,11 @@ public sealed class DrawingService
             TicketPrice = configuration.DefaultTicketPrice,
             WinnerPercent = configuration.DefaultWinnerPercent,
             MaxTicketsPerPlayer = configuration.DefaultMaxTicketsPerPlayer,
+            StartingPrizeGil = configuration.DefaultStartingPrizeGil,
+            ProtocolVersion = CurrentProtocol,
             Status = DrawingStatus.Draft,
             CreatedAt = DateTimeOffset.UtcNow,
+            LastModifiedAt = DateTimeOffset.UtcNow,
         };
     }
 
@@ -35,11 +41,14 @@ public sealed class DrawingService
     {
         var drawing = new DrawingRecord
         {
+            ProtocolVersion = CurrentProtocol,
             Status = DrawingStatus.Draft,
             CreatedAt = DateTimeOffset.UtcNow,
+            LastModifiedAt = DateTimeOffset.UtcNow,
         };
 
         ApplyPresetToDraft(drawing, preset);
+        drawing.RevisionNumber = 0;
         return drawing;
     }
 
@@ -54,6 +63,9 @@ public sealed class DrawingService
         drawing.TicketPrice = preset.TicketPrice;
         drawing.WinnerPercent = preset.WinnerPercent;
         drawing.MaxTicketsPerPlayer = preset.MaxTicketsPerPlayer;
+        drawing.StartingPrizeGil = preset.StartingPrizeGil;
+        drawing.ProtocolVersion = CurrentProtocol;
+        Touch(drawing);
         return true;
     }
 
@@ -71,23 +83,36 @@ public sealed class DrawingService
             return "Winner percentage must be between 1 and 100.";
         if (drawing.MaxTicketsPerPlayer < 0 || drawing.MaxTicketsPerPlayer > DrawingServiceLimits.MaxTicketsPerDrawing)
             return $"Maximum tickets per player must be between 0 and {DrawingServiceLimits.MaxTicketsPerDrawing:N0}.";
+        if (drawing.StartingPrizeGil < 0 || drawing.StartingPrizeGil > DrawingServiceLimits.MaxStartingPrize)
+            return $"Starting prize must be between 0 and {DrawingServiceLimits.MaxStartingPrize:N0} gil.";
 
         drawing.Id = Guid.NewGuid();
-        drawing.ProtocolVersion = "LSPLIT1";
+        drawing.ProtocolVersion = CurrentProtocol;
         drawing.SeedHex = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         drawing.CommitmentHash = ComputeCommitment(drawing);
         drawing.Status = DrawingStatus.Open;
         drawing.OpenedAt = DateTimeOffset.UtcNow;
+        Touch(drawing);
         return string.Empty;
     }
 
-    public string AddPurchase(DrawingRecord drawing, string playerName, string world, int quantity)
+    public string AddPurchase(
+        DrawingRecord drawing,
+        string playerName,
+        string world,
+        int quantity,
+        string recordedBy = "Host",
+        Guid? clientTransactionId = null)
     {
         if (drawing.Status != DrawingStatus.Open)
             return "Ticket sales are not open.";
 
         playerName = playerName.Trim();
         world = world.Trim();
+        recordedBy = string.IsNullOrWhiteSpace(recordedBy) ? "Host" : recordedBy.Trim();
+        var transactionId = clientTransactionId.GetValueOrDefault();
+        if (transactionId == Guid.Empty)
+            transactionId = Guid.NewGuid();
 
         if (string.IsNullOrWhiteSpace(playerName))
             return "Enter the buyer's character name.";
@@ -95,6 +120,8 @@ public sealed class DrawingService
             return "Ticket quantity must be greater than zero.";
         if (quantity > DrawingServiceLimits.MaxTicketsPerPurchase)
             return $"A single purchase cannot exceed {DrawingServiceLimits.MaxTicketsPerPurchase:N0} tickets.";
+        if (drawing.Purchases.Any(p => p.ClientTransactionId == transactionId))
+            return "That purchase was already recorded.";
 
         var proposedTotal = (long)drawing.TotalTickets + quantity;
         if (proposedTotal > DrawingServiceLimits.MaxTicketsPerDrawing)
@@ -111,15 +138,21 @@ public sealed class DrawingService
                 return $"That purchase would exceed the {drawing.MaxTicketsPerPlayer:N0}-ticket player limit.";
         }
 
+        var nextRevision = drawing.RevisionNumber + 1;
         drawing.Purchases.Add(new TicketPurchase
         {
+            Id = Guid.NewGuid(),
+            ClientTransactionId = transactionId,
             PlayerName = playerName,
             World = world,
             Quantity = quantity,
             PurchasedAt = DateTimeOffset.UtcNow,
+            RecordedBy = recordedBy,
+            RevisionNumber = nextRevision,
         });
 
         RecalculateTicketRanges(drawing);
+        Touch(drawing);
         return string.Empty;
     }
 
@@ -134,6 +167,7 @@ public sealed class DrawingService
 
         drawing.Purchases.Remove(purchase);
         RecalculateTicketRanges(drawing);
+        Touch(drawing);
         return true;
     }
 
@@ -147,6 +181,7 @@ public sealed class DrawingService
         RecalculateTicketRanges(drawing);
         drawing.Status = DrawingStatus.Closed;
         drawing.ClosedAt = DateTimeOffset.UtcNow;
+        Touch(drawing);
         return string.Empty;
     }
 
@@ -157,6 +192,7 @@ public sealed class DrawingService
 
         drawing.Status = DrawingStatus.Open;
         drawing.ClosedAt = null;
+        Touch(drawing);
         return string.Empty;
     }
 
@@ -185,10 +221,11 @@ public sealed class DrawingService
 
         drawing.WinnerName = winningPurchase.PlayerName;
         drawing.WinnerWorld = winningPurchase.World;
-        drawing.WinnerPayout = drawing.TotalPot * drawing.WinnerPercent / 100;
-        drawing.VenueShare = drawing.TotalPot - drawing.WinnerPayout;
+        drawing.WinnerPayout = drawing.ProjectedWinnerPayout;
+        drawing.VenueShare = drawing.ProjectedVenueShare;
         drawing.Status = DrawingStatus.Drawn;
         drawing.DrawnAt = DateTimeOffset.UtcNow;
+        Touch(drawing);
         return string.Empty;
     }
 
@@ -199,11 +236,13 @@ public sealed class DrawingService
 
         drawing.Status = DrawingStatus.Voided;
         drawing.ClosedAt ??= DateTimeOffset.UtcNow;
+        Touch(drawing);
     }
 
     public string ComputeCommitment(DrawingRecord drawing)
     {
-        var canonical = string.Join('|',
+        var values = new[]
+        {
             GetProtocolVersion(drawing),
             drawing.Id.ToString("N"),
             CanonicalText(drawing.VenueName),
@@ -211,9 +250,13 @@ public sealed class DrawingService
             drawing.TicketPrice.ToString(CultureInfo.InvariantCulture),
             drawing.WinnerPercent.ToString(CultureInfo.InvariantCulture),
             drawing.MaxTicketsPerPlayer.ToString(CultureInfo.InvariantCulture),
-            drawing.SeedHex.ToUpperInvariant());
+        }.ToList();
 
-        return Sha256Hex(canonical);
+        if (IncludesStartingPrizeInCommitment(drawing))
+            values.Add(drawing.StartingPrizeGil.ToString(CultureInfo.InvariantCulture));
+
+        values.Add(drawing.SeedHex.ToUpperInvariant());
+        return Sha256Hex(string.Join('|', values));
     }
 
     public bool VerifyCommitment(DrawingRecord drawing)
@@ -246,34 +289,57 @@ public sealed class DrawingService
         var limit = drawing.MaxTicketsPerPlayer > 0
             ? $" Limit: {drawing.MaxTicketsPerPlayer:N0} tickets per player."
             : string.Empty;
+        var seedText = drawing.StartingPrizeGil > 0
+            ? $" The venue has seeded the prize pool with {drawing.StartingPrizeGil:N0} gil. The winner receives {drawing.WinnerPercent}% of the full pool, including ticket sales."
+            : $" The winner receives {drawing.WinnerPercent}% of ticket sales.";
 
-        return $"[{drawing.VenueName}] {drawing.Title} is now open! Tickets are {drawing.TicketPrice:N0} gil each. " +
-               $"The winner receives {drawing.WinnerPercent}% of the final pot.{limit} Fairness commitment: {drawing.CommitmentHash}";
+        return $"[{drawing.VenueName}] {drawing.Title} is now open! Tickets are {drawing.TicketPrice:N0} gil each.{seedText}{limit} " +
+               $"Fairness commitment: {drawing.CommitmentHash}";
     }
 
     public string BuildSalesUpdate(DrawingRecord drawing)
     {
-        var estimatedPayout = drawing.TotalPot * drawing.WinnerPercent / 100;
+        var seedText = drawing.StartingPrizeGil > 0
+            ? $" Venue starting pot: {drawing.StartingPrizeGil:N0} gil."
+            : string.Empty;
+
         return $"[{drawing.VenueName}] 50/50 update: {drawing.TotalTickets:N0} tickets sold to {drawing.UniquePlayers:N0} players. " +
-               $"Current pot: {drawing.TotalPot:N0} gil. Estimated winner payout: {estimatedPayout:N0} gil.";
+               $"Ticket revenue: {drawing.TicketRevenue:N0} gil. Total prize pool: {drawing.TotalPrizePool:N0} gil. " +
+               $"Current winner payout: {drawing.ProjectedWinnerPayout:N0} gil. Venue share: {drawing.ProjectedVenueShare:N0} gil.{seedText}";
     }
 
     public string BuildWinnerAnnouncement(DrawingRecord drawing)
     {
+        var seedText = drawing.StartingPrizeGil > 0
+            ? $" The total pool included a {drawing.StartingPrizeGil:N0}-gil venue starting pot."
+            : string.Empty;
+
         return $"[{drawing.VenueName}] Congratulations to {drawing.WinnerDisplayName}! Ticket #{drawing.WinningTicket:N0} wins " +
-               $"{drawing.WinnerPayout:N0} gil from a {drawing.TotalPot:N0} gil pot. Thank you to everyone who entered!";
+               $"{drawing.WinnerPayout:N0} gil from a {drawing.TotalPrizePool:N0}-gil prize pool. " +
+               $"Ticket sales raised {drawing.TicketRevenue:N0} gil.{seedText} Thank you to everyone who entered!";
     }
 
     public string BuildVerificationReceipt(DrawingRecord drawing)
     {
-        return string.Join(Environment.NewLine,
+        var lines = new System.Collections.Generic.List<string>
+        {
             $"Lucky Split verification receipt ({GetProtocolVersion(drawing)})",
             $"Drawing ID: {drawing.Id:N}",
             $"Venue: {drawing.VenueName}",
             $"Drawing: {drawing.Title}",
             $"Ticket price: {drawing.TicketPrice}",
             $"Winner percent: {drawing.WinnerPercent}",
+        };
+
+        if (IncludesStartingPrizeInCommitment(drawing))
+            lines.Add($"Venue starting pot: {drawing.StartingPrizeGil}");
+
+        lines.AddRange(new[]
+        {
             $"Total tickets: {drawing.TotalTickets}",
+            $"Ticket revenue: {drawing.TicketRevenue}",
+            $"Total prize pool: {drawing.TotalPrizePool}",
+            $"Payout calculation: {GetPayoutCalculationLabel(drawing)}",
             $"Commitment: {drawing.CommitmentHash}",
             $"Revealed seed: {drawing.SeedHex}",
             $"Commitment valid: {VerifyCommitment(drawing)}",
@@ -282,7 +348,11 @@ public sealed class DrawingService
             $"Winning ticket: {drawing.WinningTicket}",
             $"Winner: {drawing.WinnerDisplayName}",
             $"Winner payout: {drawing.WinnerPayout}",
-            $"Venue share: {drawing.VenueShare}");
+            $"Venue share: {drawing.VenueShare}",
+            $"Ledger revision: {drawing.RevisionNumber}",
+        });
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     public string ExportCsv(DrawingRecord drawing, string directory)
@@ -293,7 +363,7 @@ public sealed class DrawingService
         var path = Path.Combine(directory, fileName);
 
         using var writer = new StreamWriter(path, false, new UTF8Encoding(true));
-        writer.WriteLine("Player,World,Quantity,StartTicket,EndTicket,TicketPrice,AmountPaid,PurchasedAtUtc");
+        writer.WriteLine("Player,World,Quantity,StartTicket,EndTicket,TicketPrice,AmountPaid,PurchasedAtUtc,RecordedBy,TransactionId,Revision,DrawingStartingPrize,DrawingTotalPrizePool,DrawingWinnerPercent,DrawingProjectedWinnerPayout,DrawingProjectedVenueShare,ProtocolVersion");
         foreach (var purchase in drawing.Purchases.OrderBy(p => p.StartTicket))
         {
             writer.WriteLine(string.Join(',',
@@ -304,7 +374,16 @@ public sealed class DrawingService
                 purchase.EndTicket.ToString(CultureInfo.InvariantCulture),
                 drawing.TicketPrice.ToString(CultureInfo.InvariantCulture),
                 ((long)purchase.Quantity * drawing.TicketPrice).ToString(CultureInfo.InvariantCulture),
-                Csv(purchase.PurchasedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture))));
+                Csv(purchase.PurchasedAt.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)),
+                Csv(purchase.RecordedBy),
+                purchase.ClientTransactionId.ToString("N"),
+                purchase.RevisionNumber.ToString(CultureInfo.InvariantCulture),
+                drawing.StartingPrizeGil.ToString(CultureInfo.InvariantCulture),
+                drawing.TotalPrizePool.ToString(CultureInfo.InvariantCulture),
+                drawing.WinnerPercent.ToString(CultureInfo.InvariantCulture),
+                drawing.ProjectedWinnerPayout.ToString(CultureInfo.InvariantCulture),
+                drawing.ProjectedVenueShare.ToString(CultureInfo.InvariantCulture),
+                Csv(GetProtocolVersion(drawing))));
         }
 
         return path;
@@ -328,9 +407,42 @@ public sealed class DrawingService
         }
     }
 
+    public void NormalizeCollaborationMetadata(DrawingRecord drawing)
+    {
+        drawing.Purchases ??= new();
+        foreach (var purchase in drawing.Purchases)
+        {
+            if (purchase.Id == Guid.Empty)
+                purchase.Id = Guid.NewGuid();
+            if (purchase.ClientTransactionId == Guid.Empty)
+                purchase.ClientTransactionId = purchase.Id;
+            if (string.IsNullOrWhiteSpace(purchase.RecordedBy))
+                purchase.RecordedBy = "Host";
+        }
+    }
+
+    private static void Touch(DrawingRecord drawing)
+    {
+        drawing.RevisionNumber++;
+        drawing.LastModifiedAt = DateTimeOffset.UtcNow;
+    }
+
+    private static bool IncludesStartingPrizeInCommitment(DrawingRecord drawing) =>
+        !string.Equals(GetProtocolVersion(drawing), OriginalProtocol, StringComparison.OrdinalIgnoreCase);
+
+    private static string GetPayoutCalculationLabel(DrawingRecord drawing)
+    {
+        var protocol = GetProtocolVersion(drawing);
+        if (string.Equals(protocol, CurrentProtocol, StringComparison.OrdinalIgnoreCase))
+            return "winner percent of venue starting pot plus ticket revenue";
+        if (string.Equals(protocol, StartingPrizeWinnerAdditiveProtocol, StringComparison.OrdinalIgnoreCase))
+            return "venue starting prize plus winner percent of ticket revenue";
+        return "winner percent of ticket revenue";
+    }
+
     private static string GetProtocolVersion(DrawingRecord drawing)
     {
-        return string.IsNullOrWhiteSpace(drawing.ProtocolVersion) ? "LSPLIT1" : drawing.ProtocolVersion;
+        return string.IsNullOrWhiteSpace(drawing.ProtocolVersion) ? OriginalProtocol : drawing.ProtocolVersion;
     }
 
     private static string CanonicalText(string value) => value.Trim().Replace('|', '/').Replace(';', ',');
@@ -341,5 +453,5 @@ public sealed class DrawingService
         return Convert.ToHexString(bytes);
     }
 
-    private static string Csv(string value) => $"\"{value.Replace("\"", "\"\"")}\"";
+    private static string Csv(string value) => "\"" + value.Replace("\"", "\"\"") + "\"";
 }

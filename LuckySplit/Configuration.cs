@@ -9,13 +9,14 @@ namespace LuckySplit;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 6;
+    public int Version { get; set; } = 8;
 
     // Compatibility defaults used when creating the first venue preset.
     public string DefaultVenueName { get; set; } = "Everbloom";
     public int DefaultTicketPrice { get; set; } = 100_000;
     public int DefaultWinnerPercent { get; set; } = 50;
     public int DefaultMaxTicketsPerPlayer { get; set; }
+    public long DefaultStartingPrizeGil { get; set; }
 
     public bool HasSeenWelcomeSplash { get; set; }
     public bool HasCompletedPresetSetup { get; set; }

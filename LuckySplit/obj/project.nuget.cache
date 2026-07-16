@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "xthfkeJ4vXA=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Chris\\source\\repos\\Lucksplit 1.1\\LuckySplit\\LuckySplit\\LuckySplit.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Chris\\.nuget\\packages\\dalamudpackager\\15.0.0\\dalamudpackager.15.0.0.nupkg.sha512",
+    "C:\\Users\\Chris\\.nuget\\packages\\dotnet.reproduciblebuilds\\1.2.39\\dotnet.reproduciblebuilds.1.2.39.nupkg.sha512"
+  ],
+  "logs": []
+}
